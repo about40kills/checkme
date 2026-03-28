@@ -32,7 +32,7 @@ LANG_SELECT_ENGLISH = "Select your language:\n1. Twi\n2. Ewe"
 LANG_SELECT_TW = "fa baako sɛ wo pɛ Twi, fa mmienu sɛ wo pɛ Ewe."
 LANG_SELECT_EE = "Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
 # Combined voice prompt so both Twi and Ewe speakers hear their language
-LANG_SELECT_VOICE = "fa baako sɛ wo pɛ Twi, fa mmienu sɛ wo pɛ Ewe. Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
+LANG_SELECT_VOICE = "fa baako sɛ wo pɛ Twi, fa mmienu sɛ wo pɛ Ewe.                  Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
 
 
 # ── Found responses ───────────────────────────────────────────────────────────
@@ -73,9 +73,9 @@ def not_found(number, lang="tw"):
             f"Mégblɔ PIN tɔ ame aɖeke ŋu o."
         )
     return (
-        f"Yɛnhuu din bi a ɛne {number} to so. "
-        f"Hwɛ number no bio anaasɛ bisa onipa no sɛ ɔkyerɛ wo n'akaonto no. "
-        f"Nnka wo PIN nkyerɛ obiara."
+        f"Yɛnhuu din bi aa wɔ {number} no so."
+        f"Hwɛ number no bio anaasɛ bisa onipa no sɛ ɔnkyerɛ wo n'akoanto no."
+        f"ɛnka wo PIN nkyerɛ obiaa"
     )
 
 
