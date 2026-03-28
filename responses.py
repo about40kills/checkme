@@ -29,10 +29,10 @@ def _category_hint_ee(category):
 # ── Language selection prompt ─────────────────────────────────────────────────
 
 LANG_SELECT_ENGLISH = "Select your language:\n1. Twi\n2. Ewe"
-LANG_SELECT_TW = "Tua baako sɛ wo pɛ Twi, tua mmienu sɛ wo pɛ Ewe."
+LANG_SELECT_TW = "fa baako sɛ wo pɛ Twi, fa mmienu sɛ wo pɛ Ewe."
 LANG_SELECT_EE = "Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
 # Combined voice prompt so both Twi and Ewe speakers hear their language
-LANG_SELECT_VOICE = "Tua baako sɛ wo pɛ Twi, tua mmienu sɛ wo pɛ Ewe. Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
+LANG_SELECT_VOICE = "fa baako sɛ wo pɛ Twi, fa mmienu sɛ wo pɛ Ewe. Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
 
 
 # ── Found responses ───────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ _no_number_tw = [
     "Mesrɛ wo, ka number no bio. Te sɛ: sero tu foɔfoɔ foɔfoɔ wɔn tu tri fɔ faif seks.",
     "Menhuu number biara wo wo nsɛm mu. Ka number no pɛn bio, na fa digit nyinaa ka.",
     "Number no nte ase. Mesrɛ wo, kyerɛ me number a wopɛ sɛ wo hwɛ no.",
-    "Mesrɛ wo, soma number no foforo. Hwɛ sɛ wukyerɛ digits nyinaa.",
+    "Mesrɛ wo, soma number no foforo. Hwɛ sɛ w'akyerɛ digits nyinaa.",
     "Mente ase number biara. Ka number no bio, na fa digits nyinaa ka.",
     "Mesrɛ wo, number no nte ase. Ka number no bio na fa digits nyinaa ka.",
     "Wanhyɛ number biara ama me. Mesrɛ wo, ka number no bio.",
