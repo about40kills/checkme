@@ -2,5 +2,6 @@ flask
 twilio
 ghana-nlp
 pydub
+audioop-lts
 requests
 python-dotenv
