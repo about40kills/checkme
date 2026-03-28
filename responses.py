@@ -15,13 +15,13 @@ def _category_hint_tw(category):
 
 def _category_hint_ee(category):
     hints = {
-        "individual": "Esia nye ŋutɔ ame aɖeke tɔ account.",
-        "merchant": "Esia nye dɔwɔla abe shop ene account.",
-        "church": "Esia nye habobo account.",
-        "school": "Esia nye sukuu account.",
-        "susu_group": "Esia nye susu group account.",
-        "ngo": "Esia nye community organization account.",
-        "agent": "Esia nye mobile money agent account.",
+        "individual": "Esia nye ŋutɔ ame aɖeke tɔ akoanto.",
+        "merchant": "Esia nye dɔwɔla abe shop ene akaonto.",
+        "church": "Esia nye habobo akaonto.",
+        "school": "Esia nye sukuu akaonto.",
+        "susu_group": "Esia nye susu group akaonto.",
+        "ngo": "Esia nye community organization akaonto.",
+        "agent": "Esia nye mobile money agent akaonto.",
     }
     return hints.get(category, "Kpɔ ŋkɔ la nyuie esime ado ga.")
 
@@ -57,9 +57,9 @@ def found(number, entity, lang="tw"):
         hint = _category_hint_tw(category)
         return (
             f"Number {number} din de {name}. "
-            f"Hwɛ sɛ ɛne onipa a wopɛ sɛ wo soma no na ɛtɔ so ansa na wo soma sika. "
+            f"Hwɛ sɛ ɛne onipa aa wopɛ sɛ wo soma sika no ne nɔmba no yɛ pɛ ansa na wo asoma sika no "
             f"{hint} "
-            f"Wopɛ sɛ wo soma sika ama won? Tua YES na wɔ anim."
+            f"Wopɛ sɛ wo soma sika ama won? fa YES na wɔ anim."
         )
 
 
@@ -74,7 +74,7 @@ def not_found(number, lang="tw"):
         )
     return (
         f"Yɛnhuu din bi a ɛne {number} to so. "
-        f"Hwɛ number no bio anaasɛ bisa onipa no sɛ ɔkyerɛ wo n'account no. "
+        f"Hwɛ number no bio anaasɛ bisa onipa no sɛ ɔkyerɛ wo n'akaonto no. "
         f"Nnka wo PIN nkyerɛ obiara."
     )
 
