@@ -1,22 +1,10 @@
-import os
-import subprocess
-import tempfile
+from pydub import AudioSegment
 from io import BytesIO
-
-try:
-    from pydub import AudioSegment
-except ImportError:  # pragma: no cover - exercised only when dependency is missing
-    AudioSegment = None
-
-
-def _require_pydub():
-    if AudioSegment is None:
-        raise RuntimeError("pydub is not installed. Run `pip install pydub`.")
+import subprocess, tempfile, os
 
 
 def ogg_to_wav(ogg_bytes):
-    _require_pydub()
-
+    """Convert OGG voice note bytes to 16kHz mono WAV for ASR."""
     audio = AudioSegment.from_ogg(BytesIO(ogg_bytes))
     buf = BytesIO()
     audio.export(buf, format="wav", parameters=["-ar", "16000", "-ac", "1"])
@@ -24,37 +12,18 @@ def ogg_to_wav(ogg_bytes):
 
 
 def mp3_to_ogg(mp3_bytes):
-    if not mp3_bytes:
-        return b""
-
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as mp3_file:
-        mp3_file.write(mp3_bytes)
-        mp3_path = mp3_file.name
-
+    """Convert MP3 bytes (from TTS) to OGG/Opus for WhatsApp playback."""
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        f.write(mp3_bytes)
+        mp3_path = f.name
     ogg_path = mp3_path.replace(".mp3", ".ogg")
-
-    try:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-i",
-                mp3_path,
-                "-c:a",
-                "libopus",
-                "-ac",
-                "1",
-                "-ar",
-                "48000",
-                ogg_path,
-            ],
-            check=True,
-            capture_output=True,
-        )
-        with open(ogg_path, "rb") as ogg_file:
-            return ogg_file.read()
-    finally:
-        if os.path.exists(mp3_path):
-            os.unlink(mp3_path)
-        if os.path.exists(ogg_path):
-            os.unlink(ogg_path)
+    subprocess.run([
+        "ffmpeg", "-y", "-i", mp3_path,
+        "-c:a", "libopus", "-ac", "1",
+        "-ar", "48000", ogg_path
+    ], check=True, capture_output=True)
+    with open(ogg_path, "rb") as f:
+        result = f.read()
+    os.unlink(mp3_path)
+    os.unlink(ogg_path)
+    return result
