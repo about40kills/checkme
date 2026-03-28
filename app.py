@@ -53,7 +53,43 @@ if not FROM_NUMBER:
 
 client = Client(TWILIO_SID, TWILIO_TOKEN)
 
-SESSIONS = {}  # Store state for USSD flows
+# TTS cache — avoids re-calling GhanaNLP for the same text (e.g. repeated no_number replies).
+_tts_cache = {}
+_tts_cache_lock = threading.Lock()
+_TTS_CACHE_MAX = 50  # max entries to avoid unbounded memory growth
+
+
+def _tts_cached(text):
+    """Return cached MP3 bytes for text, calling GhanaNLP TTS only on cache miss."""
+    from tts import speak
+    with _tts_cache_lock:
+        if text in _tts_cache:
+            return _tts_cache[text]
+    mp3 = speak(text, lang="tw")
+    if mp3:
+        with _tts_cache_lock:
+            if len(_tts_cache) >= _TTS_CACHE_MAX:
+                oldest = next(iter(_tts_cache))
+                del _tts_cache[oldest]
+            _tts_cache[text] = mp3
+    return mp3
+
+
+def send_prompt(to, english, twi):
+    """Send English text immediately, then follow with a Twi voice note."""
+    send_text(to, english)
+    from audio import mp3_to_ogg
+    mp3 = _tts_cached(twi)
+    if mp3:
+        try:
+            ogg = mp3_to_ogg(mp3)
+            send_voice(to, ogg)
+        except Exception as e:
+            print(f"[VOICE ERROR] {e}", flush=True)
+
+
+_lock = threading.Lock()
+SESSIONS = {}  # Store state for USSD flows — guarded by _lock
 ANALYTICS = {
     "total_messages": 0,
     "voice_messages": 0,
@@ -140,11 +176,22 @@ def send_voice(to, ogg_bytes):
     url = f"{BASE_URL}/static/audio/{filename}"
     client.messages.create(from_=FROM_NUMBER, to=normalized_to, media_url=[url])
 
+    # Delete the file after 90s — enough time for Twilio to fetch it.
+    def _cleanup():
+        import time
+        time.sleep(90)
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+    threading.Thread(target=_cleanup, daemon=True).start()
+
 
 def process_incoming_payload(payload):
     from_number = normalize_whatsapp_number(payload.get("From"))
     num_media = int(payload.get("NumMedia", 0) or 0)
-    ANALYTICS["total_messages"] += 1
+    with _lock:
+        ANALYTICS["total_messages"] += 1
 
     if not from_number:
         print(f"[WEBHOOK ERROR] Missing/invalid From number: {payload.get('From')!r}", flush=True)
@@ -152,7 +199,8 @@ def process_incoming_payload(payload):
 
     try:
         if num_media > 0:
-            ANALYTICS["voice_messages"] += 1
+            with _lock:
+                ANALYTICS["voice_messages"] += 1
             content_type = payload.get("MediaContentType0", "")
             media_url = payload.get("MediaUrl0")
 
@@ -167,7 +215,8 @@ def process_incoming_payload(payload):
             else:
                 send_text(from_number, "Mesrɛ wo soma voice note ama me.")
         else:
-            ANALYTICS["text_messages"] += 1
+            with _lock:
+                ANALYTICS["text_messages"] += 1
             body = payload.get("Body", "").strip()
             handle_text(body, from_number)
 
@@ -176,7 +225,7 @@ def process_incoming_payload(payload):
         import traceback
         traceback.print_exc()
         try:
-            send_text(from_number, "Hmm, something went wrong on our end. Please try again.")
+            send_prompt(from_number, "Something went wrong. Please try again.", "Hwee bɔne bi abɛba. Mesrɛ wo, xia bio.")
         except Exception as send_err:
             print(f"[SEND ERROR] Could not send error reply: {send_err}", flush=True)
 
@@ -184,168 +233,313 @@ def process_incoming_payload(payload):
 def process_message(text, from_number):
     """Core logic to process incoming text and manage USSD state flow."""
     from lookup import extract_number, lookup_record
-    from responses import found, not_found, no_number, ask_amount, ask_reference, confirm_transfer
+    from responses import found, not_found, no_number, ask_amount, ask_reference, confirm_transfer, transfer_success
     from tts import speak
     from audio import mp3_to_ogg
-    from language_support import detect_language, translate_reply
+    from language_support import detect_language
 
     text = text.strip()
     detected_lang = detect_language(text)
-    ANALYTICS["language_counts"][detected_lang] += 1
-    session = SESSIONS.get(from_number)
+    with _lock:
+        ANALYTICS["language_counts"][detected_lang] += 1
+    with _lock:
+        session = SESSIONS.get(from_number)
+
+    # If the user sends a new number lookup while inside any session, reset.
+    if session and extract_number(text):
+        with _lock:
+            SESSIONS.pop(from_number, None)
+        session = None
 
     if session:
         state = session.get("state")
 
         if state == "USSD_MAIN_MENU":
             if text == "1":
-                session["state"] = "USSD_SEND_MONEY_MENU"
-                send_text(
-                    from_number,
-                    "Send Money\n1. MoMo User\n2. Non-MoMo\n0. Cancel"
-                )
+                with _lock:
+                    session["state"] = "USSD_SEND_MONEY_MENU"
+                send_prompt(from_number, "Send Money\n1. MoMo User\n2. Non-MoMo\n0. Cancel", "Soma Sika. Tua 1 ma MoMo User, 2 ma obiara a ɔnni MoMo, 0 sɛ wo gyae.")
+            elif text == "2":
+                with _lock:
+                    session["state"] = "USSD_CASHOUT_ENTER_NUMBER"
+                send_prompt(from_number, "Cash Out (Withdraw)\nEnter agent number or your number:", "Twe Sika. Hyɛ agent number anaasɛ wo number no.")
+            elif text == "3":
+                with _lock:
+                    session["state"] = "USSD_AIRTIME_ENTER_NUMBER"
+                send_prompt(from_number, "Buy Airtime\nEnter phone number (or leave blank for yourself):", "Tɔ Airtime. Hyɛ number a wopɛ sɛ wo tɔ ma no, anaasɛ gyae sɛ ɛyɛ ma wo ankasa.")
+            elif text == "4":
+                with _lock:
+                    session["state"] = "USSD_CHECK_BALANCE"
+                send_prompt(from_number, "Enter your MoMo PIN to check balance:", "Hyɛ wo MoMo PIN sɛ wo hwɛ wo sika.")
+            elif text == "5":
+                with _lock:
+                    session["state"] = "USSD_MINI_STATEMENT"
+                send_prompt(from_number, "Enter your MoMo PIN to view mini statement:", "Hyɛ wo MoMo PIN sɛ wo hwɛ wo nkontaabu tiawa.")
             elif text == "0":
-                send_text(from_number, "USSD session ended.")
-                SESSIONS.pop(from_number, None)
+                send_prompt(from_number, "USSD session ended.", "USSD session wie ase.")
+                with _lock:
+                    SESSIONS.pop(from_number, None)
             else:
-                send_text(from_number, "Invalid option. Reply 1 to Send Money or 0 to Cancel.")
+                send_prompt(from_number, "Invalid option.\n1.Send Money 2.Cash Out 3.Airtime 4.Balance 5.Statement 0.Cancel", "Nsa a woaka no nnyɛ pa. Tua 1 ma Soma Sika, 2 ma Twe Sika, 3 ma Airtime, 4 ma Sika Hwɛ, 5 ma Nkontaabu, 0 ma Gyae.")
             return
 
         if state == "USSD_SEND_MONEY_MENU":
             if text == "1":
-                session["state"] = "USSD_ENTER_NUMBER"
-                send_text(from_number, "Enter Number (e.g. 0244123456):")
+                with _lock:
+                    session["state"] = "USSD_ENTER_NUMBER"
+                send_prompt(from_number, "Enter number (e.g. 0244123456):", "Hyɛ number no, te sɛ: sero tu foɔfoɔ foɔfoɔ wɔn tu tri fɔ faif seks.")
             elif text == "0":
-                send_text(from_number, "USSD session ended.")
-                SESSIONS.pop(from_number, None)
+                send_prompt(from_number, "USSD session ended.", "USSD session wie ase.")
+                with _lock:
+                    SESSIONS.pop(from_number, None)
             else:
-                send_text(from_number, "For demo, reply 1 for MoMo User or 0 to Cancel.")
+                send_prompt(from_number, "Reply 1 for MoMo User or 0 to Cancel.", "Tua 1 ma MoMo User anaasɛ 0 sɛ wo pɛ sɛ wo gyae.")
+            return
+
+        if state == "USSD_CASHOUT_ENTER_NUMBER":
+            target_number = extract_number(text) or text.strip()
+            with _lock:
+                session["target_number"] = target_number
+                session["state"] = "USSD_CASHOUT_ENTER_AMOUNT"
+            send_prompt(from_number, f"Withdraw from {target_number}\nEnter amount (GHS):", f"Twe sika firi {target_number}. Hyɛ sika dodoɔ a wopɛ sɛ wo twe no.")
+            return
+
+        if state == "USSD_CASHOUT_ENTER_AMOUNT":
+            clean = text.replace(",", "").strip()
+            if not clean.replace(".", "", 1).isdigit():
+                send_prompt(from_number, "Invalid amount. Enter numbers only (e.g. 100).", "Sika dodoɔ no nnyɛ pa. Hyɛ nɔma nko ara, te sɛ: ɔha.")
+                return
+            with _lock:
+                session["amount"] = clean
+                session["state"] = "USSD_CASHOUT_PIN"
+            send_prompt(from_number, f"Withdraw GHS {clean} from {session.get('target_number', '-')}\nEnter PIN to confirm:", f"Twe GHS {clean} firi {session.get('target_number', '-')}. Hyɛ wo PIN sɛ wo si ho ban.")
+            return
+
+        if state == "USSD_CASHOUT_PIN":
+            send_prompt(
+                from_number,
+                f"✅ Cash Out complete.\nGHS {session.get('amount', '-')} withdrawn from {session.get('target_number', '-')}.",
+                f"Twe Sika wie ase. Wotwe GHS {session.get('amount', '-')} firi {session.get('target_number', '-')}. Ɛha na MTN *170# bɛhyɛ twe sika no mu."
+            )
+            with _lock:
+                SESSIONS.pop(from_number, None)
+            return
+
+        if state == "USSD_AIRTIME_ENTER_NUMBER":
+            target = extract_number(text) or text.strip()
+            with _lock:
+                session["target_number"] = target
+                session["state"] = "USSD_AIRTIME_ENTER_AMOUNT"
+            send_prompt(from_number, f"Buy airtime for {target}\nEnter amount (GHS):", f"Tɔ airtime ma {target}. Hyɛ sika dodoɔ a wopɛ sɛ wo tɔ no.")
+            return
+
+        if state == "USSD_AIRTIME_ENTER_AMOUNT":
+            clean = text.replace(",", "").strip()
+            if not clean.replace(".", "", 1).isdigit():
+                send_text(from_number, "Invalid amount. Enter numbers only (e.g. 5).")
+                return
+            send_prompt(
+                from_number,
+                f"✅ Airtime complete.\nGHS {clean} airtime sent to {session.get('target_number', '-')}.",
+                f"Airtime tɔ wie ase. Wosomaa GHS {clean} airtime kɔ {session.get('target_number', '-')}. Ɛha na MTN *170# bɛhyɛ airtime tɔ no mu."
+            )
+            with _lock:
+                SESSIONS.pop(from_number, None)
+            return
+
+        if state == "USSD_CHECK_BALANCE":
+            send_prompt(
+                from_number,
+                "✅ Balance Check.\nMoMo Balance: GHS 1,250.00\nE-Levy Wallet: GHS 0.00\n(Demo balance)",
+                "Wo sika hwɛ wie ase. Wo MoMo sika yɛ GHS ɔha aduonu num. E-Levy Wallet yɛ sero. Yei yɛ demo sika, ɛnyɛ daa sika."
+            )
+            with _lock:
+                SESSIONS.pop(from_number, None)
+            return
+
+        if state == "USSD_MINI_STATEMENT":
+            send_prompt(
+                from_number,
+                "✅ Mini Statement (last 5 transactions):\n1. Sent GHS 50 → Kofi Mensah\n2. Received GHS 200\n3. Airtime GHS 10\n4. Cash Out GHS 100\n5. Sent GHS 30\n(Demo data)",
+                "Nkontaabu Tiawa. Wosomaa GHS aduonum ma Kofi Mensah. Wonyaa GHS ahaanu. Wotɔɔ airtime GHS du. Wotwe GHS ɔha. Wosomaa GHS aduasa. Yei yɛ demo data."
+            )
+            with _lock:
+                SESSIONS.pop(from_number, None)
             return
 
         if state == "USSD_ENTER_NUMBER":
             target_number = extract_number(text)
             if not target_number:
-                send_text(from_number, "Invalid number. Enter a valid Ghana number.")
+                send_prompt(from_number, "Invalid number. Enter a valid Ghana number (e.g. 0244123456).", "Number no nnyɛ pa. Hyɛ Ghana number pa, te sɛ: sero tu foɔfoɔ foɔfoɔ wɔn tu tri fɔ faif seks.")
                 return
 
             record = lookup_record(target_number)
             if not record:
-                send_text(from_number, f"Number {target_number} not found. Enter another number.")
+                send_prompt(from_number, f"Number {target_number} not found. Enter another number.", f"Yɛnhuu {target_number} mu biara. Hyɛ number foforo.")
                 return
 
-            session["target_number"] = target_number
-            session["target_name"] = record["display_name"]
-            session["state"] = "USSD_CONFIRM_NAME"
-            send_text(
+            with _lock:
+                session["target_number"] = target_number
+                session["target_name"] = record["display_name"]
+                session["state"] = "USSD_CONFIRM_NAME"
+            send_prompt(
                 from_number,
-                f"Name: {record['display_name']}\nNumber: {target_number}\n1. Confirm\n2. Re-enter Number\n0. Cancel"
+                f"Name: {record['display_name']}\nNumber: {target_number}\n1. Confirm\n2. Re-enter Number\n0. Cancel",
+                f"Din de {record['display_name']}, number {target_number}. Tua 1 sɛ wo si ho ban, 2 sɛ wo hyɛ number bio, 0 sɛ wo gyae."
             )
             return
 
         if state == "USSD_CONFIRM_NAME":
             if text == "1":
-                session["state"] = "USSD_ENTER_AMOUNT"
-                send_text(from_number, ask_amount())
+                with _lock:
+                    session["state"] = "USSD_ENTER_AMOUNT"
+                send_prompt(from_number, ask_amount(), "Hyɛ sika dodoɔ a wopɛ sɛ wo soma, te sɛ: aduonum.")
             elif text == "2":
-                session["state"] = "USSD_ENTER_NUMBER"
-                send_text(from_number, "Enter Number:")
+                with _lock:
+                    session["state"] = "USSD_ENTER_NUMBER"
+                send_prompt(from_number, "Re-enter number:", "Hyɛ number no bio.")
             elif text == "0":
-                send_text(from_number, "USSD session ended.")
-                SESSIONS.pop(from_number, None)
+                send_prompt(from_number, "USSD session ended.", "USSD session wie ase.")
+                with _lock:
+                    SESSIONS.pop(from_number, None)
             else:
-                send_text(from_number, "Reply 1 to Confirm, 2 to Re-enter Number, or 0 to Cancel.")
+                send_prompt(from_number, "Reply 1 to Confirm, 2 to Re-enter Number, 0 to Cancel.", "Tua 1 sɛ wo si ho ban, 2 sɛ wo hyɛ number bio, anaasɛ 0 sɛ wo gyae.")
             return
 
         if state == "USSD_ENTER_AMOUNT":
             clean_amount = text.replace(",", "").strip()
             if not clean_amount.replace(".", "", 1).isdigit():
-                send_text(from_number, "Invalid amount. Enter numbers only (e.g. 50 or 50.00).")
+                send_prompt(from_number, "Invalid amount. Enter numbers only (e.g. 50 or 50.00).", "Sika dodoɔ no nnyɛ pa. Hyɛ nɔma nko ara, te sɛ: aduonum.")
                 return
-            session["amount"] = clean_amount
-            session["state"] = "USSD_ENTER_REFERENCE"
-            send_text(from_number, ask_reference())
+            with _lock:
+                session["amount"] = clean_amount
+                session["state"] = "USSD_ENTER_REFERENCE"
+            send_prompt(from_number, ask_reference(), "Hyɛ nsɛm a wobɛka ho, anaasɛ gyae sɛ nni ho.")
             return
 
         if state == "USSD_ENTER_REFERENCE":
-            # The user requested a simulation that runs up to the "Enter Reference" point.
             ref = text if text else "N/A"
-            send_text(
+            send_prompt(
                 from_number,
-                f"USSD simulation complete.\nTo: {session.get('target_name', 'Unknown')} ({session.get('target_number', '-')})\n"
-                f"Amount: GHS {session.get('amount', '-')}\nReference: {ref}\n"
-                "This is where MTN *170# would proceed to PIN entry."
+                f"Enter PIN to confirm.\nTo: {session.get('target_name', 'Unknown')} ({session.get('target_number', '-')})\nAmount: GHS {session.get('amount', '-')}\nRef: {ref}",
+                f"Hyɛ wo PIN sɛ wo tua. Wosoma GHS {session.get('amount', '-')} kɔ {session.get('target_name', 'Onipa')}. Ɛha na MTN *170# bɛfa wo PIN na atua sika no."
             )
-            SESSIONS.pop(from_number, None)
-            return
-
-        if state == "AWAITING_CONFIRMATION":
-            # Check for positive confirmation
-            if text.lower() in ["yes", "y", "send", "continue", "yep", "yeah"]:
-                session["state"] = "AWAITING_AMOUNT"
-                send_text(from_number, ask_amount())
-            else:
-                send_text(from_number, "Transfer cancelled.")
+            with _lock:
                 SESSIONS.pop(from_number, None)
             return
 
+        if state == "AWAITING_CONFIRMATION":
+            if text.lower() in ["yes", "y", "send", "continue", "yep", "yeah"]:
+                with _lock:
+                    session["state"] = "AWAITING_AMOUNT"
+                send_prompt(from_number, ask_amount(), "Hyɛ sika dodoɔ a wopɛ sɛ wo soma, te sɛ: aduonum.")
+            else:
+                send_prompt(from_number, "Transfer cancelled.", "Wagyae sika soma no.")
+                with _lock:
+                    SESSIONS.pop(from_number, None)
+            return
+
         elif state == "AWAITING_AMOUNT":
-            session["amount"] = text
-            session["state"] = "AWAITING_REFERENCE"
-            send_text(from_number, ask_reference())
+            with _lock:
+                session["amount"] = text
+                session["state"] = "AWAITING_REFERENCE"
+            send_prompt(from_number, ask_reference(), "Hyɛ nsɛm a wobɛka ho, anaasɛ gyae sɛ nni ho.")
             return
 
         elif state == "AWAITING_REFERENCE":
             amount = session["amount"]
             target_number = session["target_number"]
             record = lookup_record(target_number)
-            name = record["display_name"] if record else "Unknown User"
-            
-            # Show final PIN prompt and clear state
-            send_text(from_number, confirm_transfer(name, target_number, amount, text))
-            SESSIONS.pop(from_number, None)
+            name = record["display_name"] if record else "Onipa"
+            ref = text if text.strip() else "N/A"
+            # Show PIN prompt first
+            send_text(from_number, confirm_transfer(name, target_number, amount, ref))
+            with _lock:
+                session["reference"] = ref
+                session["state"] = "AWAITING_PIN"
+            return
+
+        elif state == "AWAITING_PIN":
+            amount = session.get("amount", "-")
+            target_number = session.get("target_number", "-")
+            ref = session.get("reference", "N/A")
+            record = lookup_record(target_number)
+            name = record["display_name"] if record else "Onipa"
+            success_msg = transfer_success(name, target_number, amount, ref)
+            send_text(from_number, success_msg)
+            mp3 = _tts_cached(success_msg)
+            if mp3:
+                try:
+                    ogg = mp3_to_ogg(mp3)
+                    send_voice(from_number, ogg)
+                except Exception as e:
+                    print(f"[VOICE ERROR] PIN success voice failed: {e}", flush=True)
+            with _lock:
+                SESSIONS.pop(from_number, None)
             return
 
     if text.replace(" ", "") in {"*170#", "*170"}:
-        SESSIONS[from_number] = {"state": "USSD_MAIN_MENU"}
-        ANALYTICS["ussd_sessions_started"] += 1
-        send_text(
+        with _lock:
+            SESSIONS[from_number] = {"state": "USSD_MAIN_MENU"}
+            ANALYTICS["ussd_sessions_started"] += 1
+        send_prompt(
             from_number,
-            "MTN MoMo (*170#) Simulation\n1. Send Money\n2. Withdraw Cash (demo disabled)\n3. Airtime (demo disabled)\n0. Cancel"
+            "MTN MoMo (*170#)\n1. Send Money\n2. Cash Out\n3. Buy Airtime\n4. Check Balance\n5. Mini Statement\n0. Cancel",
+            "MTN MoMo. Tua 1 ma Soma Sika, 2 ma Twe Sika, 3 ma Tɔ Airtime, 4 ma Hwɛ Wo Sika, 5 ma Nkontaabu Tiawa, 0 ma Gyae."
         )
         return
 
     # Normal "look up number" flow
-    ANALYTICS["lookup_requests"] += 1
+    with _lock:
+        ANALYTICS["lookup_requests"] += 1
     number = extract_number(text)
     if not number:
         reply_text = no_number()
-        ANALYTICS["no_number_hits"] += 1
+        with _lock:
+            ANALYTICS["no_number_hits"] += 1
     else:
-        ANALYTICS["top_numbers"][number] += 1
         record = lookup_record(number)
         if record:
             reply_text = found(number, record)
-            ANALYTICS["found_hits"] += 1
-            # Setup session for USSD simulator
-            SESSIONS[from_number] = {
-                "state": "AWAITING_CONFIRMATION",
-                "target_number": number
-            }
+            with _lock:
+                ANALYTICS["found_hits"] += 1
+                ANALYTICS["top_numbers"][number] += 1
+                SESSIONS[from_number] = {
+                    "state": "AWAITING_CONFIRMATION",
+                    "target_number": number
+                }
         else:
             reply_text = not_found(number)
-            ANALYTICS["not_found_hits"] += 1
+            with _lock:
+                ANALYTICS["not_found_hits"] += 1
+                ANALYTICS["top_numbers"][number] += 1
 
-    localized_reply = translate_reply(reply_text, detected_lang)
-    tts_lang = detected_lang if detected_lang in {"tw", "en"} else "tw"
-    mp3 = speak(localized_reply, lang=tts_lang)
+    # Always keep reply in Twi — never translate to English.
+    # translate_reply would flip it to English if user typed in English, which breaks TTS.
+    is_found = number and lookup_record(number)
 
-    # TTS returned empty — fall back to text
-    if not mp3:
-        send_text(from_number, localized_reply)
-        return
-
-    ogg = mp3_to_ogg(mp3)
-    send_voice(from_number, ogg)
+    if is_found:
+        # Found a name — audio only in Twi. Text fallback if TTS fails.
+        mp3 = _tts_cached(reply_text)
+        if mp3:
+            try:
+                ogg = mp3_to_ogg(mp3)
+                send_voice(from_number, ogg)
+            except Exception as e:
+                print(f"[VOICE ERROR] Falling back to text: {e}", flush=True)
+                send_text(from_number, reply_text)
+        else:
+            send_text(from_number, reply_text)
+    else:
+        # No number / not found — text guaranteed, voice as bonus.
+        send_text(from_number, reply_text)
+        mp3 = _tts_cached(reply_text)
+        if mp3:
+            try:
+                ogg = mp3_to_ogg(mp3)
+                send_voice(from_number, ogg)
+            except Exception as e:
+                print(f"[VOICE ERROR] Non-fatal, text already sent: {e}", flush=True)
 
 
 def handle_voice(ogg_bytes, from_number):
@@ -360,7 +554,8 @@ def handle_voice(ogg_bytes, from_number):
 
     # ASR returned empty — ask user to retry
     if not text:
-        send_text(from_number, "Mente ase. Mesrɛ wo, ka number no bio.")
+        from responses import no_number
+        send_text(from_number, "Mente ase. " + no_number())
         return
 
     process_message(text, from_number)
@@ -371,4 +566,4 @@ def handle_text(body, from_number):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)
