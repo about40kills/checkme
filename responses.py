@@ -29,10 +29,10 @@ def _category_hint_ee(category):
 # ── Language selection prompt ─────────────────────────────────────────────────
 
 LANG_SELECT_ENGLISH = "Select your language:\n1. Twi\n2. Ewe"
-LANG_SELECT_TW = "Tua 1 sɛ wo pɛ Twi, tua 2 sɛ wo pɛ Ewe."
+LANG_SELECT_TW = "Tua baako sɛ wo pɛ Twi, tua mmienu sɛ wo pɛ Ewe."
 LANG_SELECT_EE = "Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
 # Combined voice prompt so both Twi and Ewe speakers hear their language
-LANG_SELECT_VOICE = "Tua 1 sɛ wo pɛ Twi, tua 2 sɛ wo pɛ Ewe. Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
+LANG_SELECT_VOICE = "Tua baako sɛ wo pɛ Twi, tua mmienu sɛ wo pɛ Ewe. Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
 
 
 # ── Found responses ───────────────────────────────────────────────────────────
