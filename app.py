@@ -41,7 +41,7 @@ def normalize_whatsapp_number(raw):
     if not re.fullmatch(r"\+\d{8,15}", e164):
         return None
     return f"whatsapp:{e164}"
-
+ 
 
 TWILIO_SID = _required_env("TWILIO_SID")
 TWILIO_TOKEN = _required_env("TWILIO_TOKEN")
