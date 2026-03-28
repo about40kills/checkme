@@ -1,16 +1,55 @@
 from flask import Flask, request
 from twilio.rest import Client
 from dotenv import load_dotenv
-import os, requests
+import os
+import re
+import threading
+import requests
 from collections import Counter
 
 load_dotenv()
 app = Flask(__name__, static_folder="static")
 
-TWILIO_SID = os.getenv("TWILIO_SID")
-TWILIO_TOKEN = os.getenv("TWILIO_TOKEN")
-FROM_NUMBER = os.getenv("TWILIO_WHATSAPP_FROM")
-BASE_URL = os.getenv("BASE_URL")
+def _required_env(name):
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+
+def normalize_whatsapp_number(raw):
+    """Return WhatsApp-formatted E.164 number (e.g. whatsapp:+233XXXXXXXXX)."""
+    if not raw:
+        return None
+
+    candidate = raw.strip()
+    if candidate.startswith("whatsapp:"):
+        candidate = candidate.split(":", 1)[1].strip()
+
+    plus = "+" if candidate.startswith("+") else ""
+    digits = re.sub(r"\D", "", candidate)
+    if not digits:
+        return None
+
+    if not plus and len(digits) == 10 and digits.startswith("0"):
+        digits = "233" + digits[1:]
+
+    if not plus and digits.startswith("00"):
+        digits = digits[2:]
+
+    e164 = f"+{digits}"
+    if not re.fullmatch(r"\+\d{8,15}", e164):
+        return None
+    return f"whatsapp:{e164}"
+
+
+TWILIO_SID = _required_env("TWILIO_SID")
+TWILIO_TOKEN = _required_env("TWILIO_TOKEN")
+FROM_NUMBER = normalize_whatsapp_number(_required_env("TWILIO_WHATSAPP_FROM"))
+BASE_URL = _required_env("BASE_URL").rstrip("/")
+
+if not FROM_NUMBER:
+    raise RuntimeError("TWILIO_WHATSAPP_FROM must be a valid WhatsApp number (E.164).")
 
 client = Client(TWILIO_SID, TWILIO_TOKEN)
 
@@ -34,6 +73,25 @@ def health():
     return {"status": "running"}, 200
 
 
+@app.route("/test-reply", methods=["GET"])
+def test_reply():
+    """Hit this URL to verify Twilio can send a WhatsApp message to a number.
+    Usage: curl "http://127.0.0.1:5000/test-reply?to=whatsapp:+233XXXXXXXXX"
+    """
+    to = normalize_whatsapp_number(request.args.get("to"))
+    if not to:
+        return {"error": "Pass a valid ?to number (e.g. whatsapp:+233XXXXXXXXX)."}, 400
+    try:
+        msg = client.messages.create(
+            from_=FROM_NUMBER,
+            to=to,
+            body="✅ CheckMe test reply — Twilio is working."
+        )
+        return {"status": "sent", "sid": msg.sid}, 200
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}, 500
+
+
 @app.route("/metrics", methods=["GET"])
 def metrics():
     return {
@@ -53,44 +111,74 @@ def metrics():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    from_number = request.form.get("From")
-    num_media = int(request.form.get("NumMedia", 0))
-    ANALYTICS["total_messages"] += 1
-
-    if num_media > 0:
-        ANALYTICS["voice_messages"] += 1
-        content_type = request.form.get("MediaContentType0", "")
-        media_url = request.form.get("MediaUrl0")
-
-        if "audio" in content_type:
-            ogg_bytes = requests.get(
-                media_url,
-                auth=(TWILIO_SID, TWILIO_TOKEN)
-            ).content
-            handle_voice(ogg_bytes, from_number)
-        else:
-            send_text(from_number, "Mesrɛ wo soma voice note ama me.")
-    else:
-        ANALYTICS["text_messages"] += 1
-        body = request.form.get("Body", "").strip()
-        handle_text(body, from_number)
-
+    payload = request.form.to_dict(flat=True)
+    threading.Thread(
+        target=process_incoming_payload,
+        args=(payload,),
+        daemon=True
+    ).start()
     return "", 200
 
 
 def send_text(to, message):
-    client.messages.create(from_=FROM_NUMBER, to=to, body=message)
+    normalized_to = normalize_whatsapp_number(to)
+    if not normalized_to:
+        raise ValueError(f"Invalid WhatsApp 'to' number: {to!r}")
+    client.messages.create(from_=FROM_NUMBER, to=normalized_to, body=message)
 
 
 def send_voice(to, ogg_bytes):
     import uuid
+    normalized_to = normalize_whatsapp_number(to)
+    if not normalized_to:
+        raise ValueError(f"Invalid WhatsApp 'to' number: {to!r}")
     os.makedirs("static/audio", exist_ok=True)
     filename = f"{uuid.uuid4()}.ogg"
     path = f"static/audio/{filename}"
     with open(path, "wb") as f:
         f.write(ogg_bytes)
     url = f"{BASE_URL}/static/audio/{filename}"
-    client.messages.create(from_=FROM_NUMBER, to=to, media_url=[url])
+    client.messages.create(from_=FROM_NUMBER, to=normalized_to, media_url=[url])
+
+
+def process_incoming_payload(payload):
+    from_number = normalize_whatsapp_number(payload.get("From"))
+    num_media = int(payload.get("NumMedia", 0) or 0)
+    ANALYTICS["total_messages"] += 1
+
+    if not from_number:
+        print(f"[WEBHOOK ERROR] Missing/invalid From number: {payload.get('From')!r}", flush=True)
+        return
+
+    try:
+        if num_media > 0:
+            ANALYTICS["voice_messages"] += 1
+            content_type = payload.get("MediaContentType0", "")
+            media_url = payload.get("MediaUrl0")
+
+            if "audio" in content_type and media_url:
+                response = requests.get(
+                    media_url,
+                    auth=(TWILIO_SID, TWILIO_TOKEN),
+                    timeout=20
+                )
+                response.raise_for_status()
+                handle_voice(response.content, from_number)
+            else:
+                send_text(from_number, "Mesrɛ wo soma voice note ama me.")
+        else:
+            ANALYTICS["text_messages"] += 1
+            body = payload.get("Body", "").strip()
+            handle_text(body, from_number)
+
+    except Exception as e:
+        print(f"[WEBHOOK ERROR] from={from_number} error={e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        try:
+            send_text(from_number, "Hmm, something went wrong on our end. Please try again.")
+        except Exception as send_err:
+            print(f"[SEND ERROR] Could not send error reply: {send_err}", flush=True)
 
 
 def process_message(text, from_number):
