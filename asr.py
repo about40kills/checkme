@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 nlp = GhanaNLP(api_key=os.getenv("GHANANLP_KEY"))
+ASR_LANGUAGE = os.getenv("GHANANLP_ASR_LANGUAGE", "tw")
 
 
 def transcribe(wav_bytes):
@@ -13,12 +14,7 @@ def transcribe(wav_bytes):
         f.write(wav_bytes)
         path = f.name
     try:
-        try:
-            # If "auto" is supported for your plan/model, this enables multilingual detection.
-            return nlp.stt(path, language="auto")
-        except Exception:
-            # Fallback to Twi for backwards compatibility.
-            return nlp.stt(path, language="tw")
+        return nlp.stt(path, language=ASR_LANGUAGE)
     except Exception as e:
         print(f"ASR error: {e}")
         return ""

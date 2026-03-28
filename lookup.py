@@ -25,6 +25,11 @@ def normalize_ghana_mobile(raw):
     return None
 
 
+def normalize_number(raw):
+    """Backward-compatible alias used by existing tests."""
+    return normalize_ghana_mobile(raw)
+
+
 def extract_number(text):
     """Extract and normalize the first valid Ghanaian mobile number in text."""
     if not text:
