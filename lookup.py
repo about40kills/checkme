@@ -4,6 +4,79 @@ from mock_data import MOMO_DB
 PHONE_PATTERN = re.compile(r"^0[2357][0-9]{8}$")
 CANDIDATE_PATTERN = re.compile(r"\+?\d[\d\s\-()]{7,}\d")
 
+# Twi/English spoken digit words → digit character.
+# Covers ASR output where numbers are spoken digit-by-digit.
+_DIGIT_WORDS = {
+    # Twi phonetic forms
+    "sero": "0", "sirow": "0", "sɛro": "0",
+    "wɔn": "1", "won": "1",
+    "tu": "2", "tuu": "2",
+    "tri": "3", "tiri": "3",
+    "fɔ": "4", "fo": "4", "foa": "4",
+    "faif": "5", "faifi": "5",
+    "seks": "6", "sɛks": "6",
+    "sɛvɛn": "7", "seven": "7", "sɛvɛ": "7",
+    "eit": "8", "ɛit": "8", "eight": "8",
+    "nain": "9", "naen": "9",
+    # English fallbacks
+    "zero": "0", "one": "1", "two": "2", "three": "3",
+    "four": "4", "five": "5", "six": "6",
+    "nine": "9",
+}
+
+def _parse_token(token):
+    """
+    Try to resolve a single ASR token to one or more digit characters.
+    Handles exact matches, greedy prefix matches for compound tokens
+    (e.g. ASR collapses 'four four' → 'foɔfɔɔ').
+    Returns a digit string or None.
+    """
+    if not token:
+        return None
+    if re.fullmatch(r"\d+", token):
+        return token  # already a digit string
+    if token in _DIGIT_WORDS:
+        return _DIGIT_WORDS[token]
+
+    # Greedy prefix scan: try to consume the token by matching known words
+    result = []
+    remaining = token
+    # Sort by length descending so longer words are tried first
+    sorted_words = sorted(_DIGIT_WORDS.keys(), key=len, reverse=True)
+    while remaining:
+        matched = False
+        for word in sorted_words:
+            if remaining.startswith(word):
+                result.append(_DIGIT_WORDS[word])
+                remaining = remaining[len(word):]
+                matched = True
+                break
+        if not matched:
+            # Skip a single character (handles ɔ/o vowel suffixes the ASR appends)
+            remaining = remaining[1:]
+    return "".join(result) if result else None
+
+
+def spoken_words_to_digits(text):
+    """
+    Convert a string of spoken digit words (from ASR) into a digit string.
+    Returns None if the result isn't a plausible phone number length (9-12 digits).
+    """
+    tokens = re.split(r"[\s,]+", text.lower().strip())
+    digits = []
+    for token in tokens:
+        token = token.strip(".,!?")
+        if not token:
+            continue
+        parsed = _parse_token(token)
+        if parsed:
+            digits.append(parsed)
+        else:
+            # Non-digit word found — not a pure spoken-number utterance
+            return None
+    digit_str = "".join(digits)
+    return digit_str if 9 <= len(digit_str) <= 12 else None
+
 
 def normalize_ghana_mobile(raw):
     """Normalize mobile numbers to canonical 0XXXXXXXXX format."""
@@ -35,14 +108,24 @@ def extract_number(text):
     if not text:
         return None
 
+    # 1. Look for digit sequences (works for typed text)
     for chunk in CANDIDATE_PATTERN.findall(text):
         normalized = normalize_ghana_mobile(chunk)
         if normalized:
             return normalized
 
-    # Fallback for compact text with separators removed.
+    # 2. Compact fallback (separators removed)
     compact = re.sub(r"[\s\-()]", "", text)
-    return normalize_ghana_mobile(compact)
+    result = normalize_ghana_mobile(compact)
+    if result:
+        return result
+
+    # 3. Spoken digit words from ASR (e.g. "sero tu foɔfɔɔ wɔn tu tri fɔ faif seks")
+    digit_str = spoken_words_to_digits(text)
+    if digit_str:
+        return normalize_ghana_mobile(digit_str)
+
+    return None
 
 
 def lookup_record(number):
