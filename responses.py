@@ -1,4 +1,6 @@
-def _category_hint(category):
+# ── Twi helpers ──────────────────────────────────────────────────────────────
+
+def _category_hint_tw(category):
     hints = {
         "individual": "Yei yɛ ankorankoro account.",
         "merchant": "Yei yɛ adwumayɛfo anaa shop account.",
@@ -11,25 +13,65 @@ def _category_hint(category):
     return hints.get(category, "Hwɛ din no yiye ansa na wo soma sika.")
 
 
-def found(number, entity):
-    """Response when the number is found — pure Twi, delivered as audio."""
+def _category_hint_ee(category):
+    hints = {
+        "individual": "Esia nye ŋutɔ ame aɖeke tɔ account.",
+        "merchant": "Esia nye dɔwɔla abe shop ene account.",
+        "church": "Esia nye habobo account.",
+        "school": "Esia nye sukuu account.",
+        "susu_group": "Esia nye susu group account.",
+        "ngo": "Esia nye community organization account.",
+        "agent": "Esia nye mobile money agent account.",
+    }
+    return hints.get(category, "Kpɔ ŋkɔ la nyuie esime ado ga.")
+
+
+# ── Language selection prompt ─────────────────────────────────────────────────
+
+LANG_SELECT_ENGLISH = "Select your language:\n1. Twi\n2. Ewe"
+LANG_SELECT_TW = "Tua 1 sɛ wo pɛ Twi, tua 2 sɛ wo pɛ Ewe."
+LANG_SELECT_EE = "Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
+# Combined voice prompt so both Twi and Ewe speakers hear their language
+LANG_SELECT_VOICE = "Tua 1 sɛ wo pɛ Twi, tua 2 sɛ wo pɛ Ewe. Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
+
+
+# ── Found responses ───────────────────────────────────────────────────────────
+
+def found(number, entity, lang="tw"):
     if isinstance(entity, dict):
         name = entity.get("display_name", "Unknown User")
-        category_hint = _category_hint(entity.get("category"))
+        category = entity.get("category")
     else:
         name = entity
-        category_hint = "Yei yɛ ankorankoro account."
+        category = None
 
-    return (
-        f"Number {number} din de {name}. "
-        f"Hwɛ sɛ ɛne onipa a wopɛ sɛ wo soma no na ɛtɔ so ansa na wo soma sika. "
-        f"{category_hint} "
-        f"Wopɛ sɛ wo soma sika ama won? Tua YES na wɔ anim."
-    )
+    if lang == "ee":
+        hint = _category_hint_ee(category)
+        return (
+            f"Number {number} ŋkɔ nye {name}. "
+            f"Kpɔ be eya nye ame si wòdzɔ na la esime ado ga. "
+            f"{hint} "
+            f"Èdi be ado ga na wo? Ŋlɔ YES be wòyi edzi."
+        )
+    else:  # default Twi
+        hint = _category_hint_tw(category)
+        return (
+            f"Number {number} din de {name}. "
+            f"Hwɛ sɛ ɛne onipa a wopɛ sɛ wo soma no na ɛtɔ so ansa na wo soma sika. "
+            f"{hint} "
+            f"Wopɛ sɛ wo soma sika ama won? Tua YES na wɔ anim."
+        )
 
 
-def not_found(number):
-    """Response when the number is NOT found in the database."""
+# ── Not found responses ───────────────────────────────────────────────────────
+
+def not_found(number, lang="tw"):
+    if lang == "ee":
+        return (
+            f"Míawɔ {number} ŋkɔ o. "
+            f"Kpɔ afɔ fɔfɔ o, kaka eŋu tso ŋkɔ ɖe ame la ŋu. "
+            f"Mégblɔ PIN tɔ ame aɖeke ŋu o."
+        )
     return (
         f"Yɛnhuu din bi a ɛne {number} to so. "
         f"Hwɛ number no bio anaasɛ bisa onipa no sɛ ɔkyerɛ wo n'account no. "
@@ -37,28 +79,45 @@ def not_found(number):
     )
 
 
-_no_number_replies = [
-    "Mesrɛ wo, ka number no bio. Te sɛ: check 0244123456 ama me.",
+# ── No number responses ───────────────────────────────────────────────────────
+
+_no_number_tw = [
+    "Mesrɛ wo, ka number no bio. Te sɛ: sero tu foɔfoɔ foɔfoɔ wɔn tu tri fɔ faif seks.",
     "Menhuu number biara wo wo nsɛm mu. Ka number no pɛn bio, na fa digit nyinaa ka.",
-    "Number no nte ase. Mesrɛ wo, kyerɛ me number a wopɛ sɛ wo hwɛ no, te sɛ 0244123456.",
-    "Mesrɛ wo, soma number no foforo. Hwɛ sɛ wukyerɛ digits nyinaa, te sɛ: 0244123456.",
-    "Mente ase number biara. Ka number no bio, na fa digits nyinaa ka, te sɛ 0244123456.",
+    "Number no nte ase. Mesrɛ wo, kyerɛ me number a wopɛ sɛ wo hwɛ no.",
+    "Mesrɛ wo, soma number no foforo. Hwɛ sɛ wukyerɛ digits nyinaa.",
+    "Mente ase number biara. Ka number no bio, na fa digits nyinaa ka.",
     "Mesrɛ wo, number no nte ase. Ka number no bio na fa digits nyinaa ka.",
-    "Wanhyɛ number biara ama me. Mesrɛ wo, ka number no bio, te sɛ 0244123456.",
+    "Wanhyɛ number biara ama me. Mesrɛ wo, ka number no bio.",
     "Menhuu number biara. Xia number no bio, na hwɛ sɛ wukyerɛ digits nyinaa.",
     "Number no nnyɛ number pa. Mesrɛ wo, ka number no bio pɛ.",
-    "Mente ase. Mesrɛ wo, fa number no bio na kyerɛ me digits nyinaa, te sɛ 0244123456.",
+    "Mente ase. Mesrɛ wo, fa number no bio na kyerɛ me digits nyinaa.",
 ]
-_no_number_index = 0
+
+_no_number_ee = [
+    "Meɖo kuku, gblɔ number la megbe. Te: sero eve ene ene ɖeka eve etɔ̃ ene atɔ̃ ade.",
+    "Míawɔ number aɖeke ŋu o. Gblɔ number la megbe, kpɔ be digit siwo katã le eme.",
+    "Number la mele teƒe o. Meɖo kuku, ŋlɔ number si wòdi be míakpɔe la.",
+    "Meɖo kuku, gblɔ number fɔfɔ. Kpɔ be digit siwo katã le eme.",
+    "Míate number aɖeke ŋu o. Gblɔ number la megbe, kpɔ digits siwo katã.",
+    "Number la meŋlɔ nyuie o. Gblɔ number la megbe.",
+    "Meɖo kuku, gblɔ number la megbe. Te: sero eve ene ene ɖeka eve etɔ̃ ene atɔ̃ ade.",
+    "Míawɔ number aɖeke ŋu o. Gblɔ number fɔfɔ.",
+    "Number la mele teƒe nyuie o. Meɖo kuku, gblɔ number la megbe.",
+    "Míate ŋu o. Meɖo kuku, gblɔ number la megbe kpɔ digit siwo katã.",
+]
+
+_no_number_index = {"tw": 0, "ee": 0}
 
 
-def no_number():
-    """Response when no valid number was detected. Rotates through 10 variants."""
-    global _no_number_index
-    reply = _no_number_replies[_no_number_index % len(_no_number_replies)]
-    _no_number_index += 1
-    return reply
+def no_number(lang="tw"):
+    pool = _no_number_ee if lang == "ee" else _no_number_tw
+    idx = _no_number_index[lang] % len(pool)
+    _no_number_index[lang] += 1
+    return pool[idx]
 
+
+# ── USSD / flow helpers ───────────────────────────────────────────────────────
 
 def ask_amount():
     return "Enter amount (e.g. 50):"
@@ -68,8 +127,14 @@ def ask_reference():
     return "Enter reference (or any note):"
 
 
-def confirm_transfer(name, number, amount, reference):
-    """Final PIN prompt before transfer — Twi."""
+def confirm_transfer(name, number, amount, reference, lang="tw"):
+    if lang == "ee":
+        return (
+            f"Ŋlɔ MoMo PIN tɔ be wòte edzi.\n"
+            f"Èdi be ado GHS {amount} na {name} ({number}).\n"
+            f"Reference: {reference}.\n"
+            f"Esia nye teƒe a MTN *170# ga wò PIN ŋu ado ga la."
+        )
     return (
         f"Hyɛ wo MoMo PIN sɛ wo si ho ban.\n"
         f"Wosoma GHS {amount} kɔ {name} ({number}).\n"
@@ -78,8 +143,14 @@ def confirm_transfer(name, number, amount, reference):
     )
 
 
-def transfer_success(name, number, amount, reference):
-    """Simulated success message after PIN entry — Twi."""
+def transfer_success(name, number, amount, reference, lang="tw"):
+    if lang == "ee":
+        return (
+            f"✅ Ga dzo nyuie.\n"
+            f"Wodo GHS {amount} na {name} ({number}).\n"
+            f"Reference: {reference}.\n"
+            f"Akpe be nèkpɔ ŋkɔ la esime ado ga."
+        )
     return (
         f"✅ Sika soma wie ase.\n"
         f"Wosomaa GHS {amount} kɔ {name} ({number}).\n"
