@@ -2,15 +2,15 @@
 
 def _category_hint_tw(category):
     hints = {
-        "individual": "Yei yɛ ankorankoro account.",
-        "merchant": "Yei yɛ adwumayɛfo anaa shop account.",
-        "church": "Yei yɛ asɔre account.",
-        "school": "Yei yɛ sukuu account.",
-        "susu_group": "Yei yɛ susu group account.",
-        "ngo": "Yei yɛ community organization account.",
-        "agent": "Yei yɛ mobile money agent account.",
+        "individual": "Yei yɛ ankorankoro akoanto.",
+        "merchant": "Yei yɛ adwumayɛfo anaa shop akoanto.",
+        "church": "Yei yɛ asɔre akoanto.",
+        "school": "Yei yɛ sukuu akoanto.",
+        "susu_group": "Yei yɛ susu group akoanto.",
+        "ngo": "Yei yɛ community organization akoanto.",
+        "agent": "Yei yɛ mobile money agent akoanto.",
     }
-    return hints.get(category, "Hwɛ din no yiye ansa na wo soma sika.")
+    return hints.get(category, "Hwɛ din no yie ansa na wo soma sika.")
 
 
 def _category_hint_ee(category):
