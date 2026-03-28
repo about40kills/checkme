@@ -1,0 +1,6 @@
+flask
+twilio
+ghana-nlp
+pydub
+requests
+python-dotenv
