@@ -245,14 +245,57 @@ def process_message(text, from_number):
     with _lock:
         session = SESSIONS.get(from_number)
 
-    # If the user sends a new number lookup while inside any session, reset.
-    if session and extract_number(text):
+    # If the user sends a new number lookup while inside any non-lang-select session, reset.
+    if session and session.get("state") != "LANG_SELECT" and extract_number(text):
         with _lock:
             SESSIONS.pop(from_number, None)
         session = None
 
     if session:
         state = session.get("state")
+        lang = session.get("lang", "tw")
+
+        # ── Language selection ────────────────────────────────────────────────
+        if state == "LANG_SELECT":
+            pending = session.get("pending_number")
+            if text == "1":
+                chosen_lang = "tw"
+            elif text == "2":
+                chosen_lang = "ee"
+            else:
+                from responses import LANG_SELECT_ENGLISH, LANG_SELECT_VOICE
+                send_prompt(from_number, LANG_SELECT_ENGLISH, LANG_SELECT_VOICE)
+                return
+
+            # Language chosen — do the lookup now
+            record = lookup_record(pending)
+            if record:
+                reply_text = found(pending, record, lang=chosen_lang)
+                with _lock:
+                    ANALYTICS["found_hits"] += 1
+                    ANALYTICS["top_numbers"][pending] += 1
+                    SESSIONS[from_number] = {
+                        "state": "AWAITING_CONFIRMATION",
+                        "target_number": pending,
+                        "lang": chosen_lang,
+                    }
+            else:
+                reply_text = not_found(pending, lang=chosen_lang)
+                with _lock:
+                    ANALYTICS["not_found_hits"] += 1
+                    ANALYTICS["top_numbers"][pending] += 1
+
+            mp3 = _tts_cached(reply_text)
+            if mp3:
+                try:
+                    ogg = mp3_to_ogg(mp3)
+                    send_voice(from_number, ogg)
+                except Exception as e:
+                    print(f"[VOICE ERROR] {e}", flush=True)
+                    send_text(from_number, reply_text)
+            else:
+                send_text(from_number, reply_text)
+            return
 
         if state == "USSD_MAIN_MENU":
             if text == "1":
@@ -452,8 +495,7 @@ def process_message(text, from_number):
             record = lookup_record(target_number)
             name = record["display_name"] if record else "Onipa"
             ref = text if text.strip() else "N/A"
-            # Show PIN prompt first
-            send_text(from_number, confirm_transfer(name, target_number, amount, ref))
+            send_text(from_number, confirm_transfer(name, target_number, amount, ref, lang=lang))
             with _lock:
                 session["reference"] = ref
                 session["state"] = "AWAITING_PIN"
@@ -465,7 +507,7 @@ def process_message(text, from_number):
             ref = session.get("reference", "N/A")
             record = lookup_record(target_number)
             name = record["display_name"] if record else "Onipa"
-            success_msg = transfer_success(name, target_number, amount, ref)
+            success_msg = transfer_success(name, target_number, amount, ref, lang=lang)
             send_text(from_number, success_msg)
             mp3 = _tts_cached(success_msg)
             if mp3:
@@ -493,45 +535,13 @@ def process_message(text, from_number):
     with _lock:
         ANALYTICS["lookup_requests"] += 1
     number = extract_number(text)
+
     if not number:
-        reply_text = no_number()
+        # No number detected — reply in last known lang or Twi default
+        last_lang = (SESSIONS.get(from_number) or {}).get("lang", "tw")
+        reply_text = no_number(lang=last_lang)
         with _lock:
             ANALYTICS["no_number_hits"] += 1
-    else:
-        record = lookup_record(number)
-        if record:
-            reply_text = found(number, record)
-            with _lock:
-                ANALYTICS["found_hits"] += 1
-                ANALYTICS["top_numbers"][number] += 1
-                SESSIONS[from_number] = {
-                    "state": "AWAITING_CONFIRMATION",
-                    "target_number": number
-                }
-        else:
-            reply_text = not_found(number)
-            with _lock:
-                ANALYTICS["not_found_hits"] += 1
-                ANALYTICS["top_numbers"][number] += 1
-
-    # Always keep reply in Twi — never translate to English.
-    # translate_reply would flip it to English if user typed in English, which breaks TTS.
-    is_found = number and lookup_record(number)
-
-    if is_found:
-        # Found a name — audio only in Twi. Text fallback if TTS fails.
-        mp3 = _tts_cached(reply_text)
-        if mp3:
-            try:
-                ogg = mp3_to_ogg(mp3)
-                send_voice(from_number, ogg)
-            except Exception as e:
-                print(f"[VOICE ERROR] Falling back to text: {e}", flush=True)
-                send_text(from_number, reply_text)
-        else:
-            send_text(from_number, reply_text)
-    else:
-        # No number / not found — text guaranteed, voice as bonus.
         send_text(from_number, reply_text)
         mp3 = _tts_cached(reply_text)
         if mp3:
@@ -539,7 +549,15 @@ def process_message(text, from_number):
                 ogg = mp3_to_ogg(mp3)
                 send_voice(from_number, ogg)
             except Exception as e:
-                print(f"[VOICE ERROR] Non-fatal, text already sent: {e}", flush=True)
+                print(f"[VOICE ERROR] {e}", flush=True)
+        return
+
+    # Number found — ask language preference before doing the lookup
+    from responses import LANG_SELECT_ENGLISH, LANG_SELECT_VOICE
+    with _lock:
+        SESSIONS[from_number] = {"state": "LANG_SELECT", "pending_number": number}
+        ANALYTICS["lookup_requests"] += 1
+    send_prompt(from_number, LANG_SELECT_ENGLISH, LANG_SELECT_VOICE)
 
 
 def handle_voice(ogg_bytes, from_number):
@@ -555,7 +573,9 @@ def handle_voice(ogg_bytes, from_number):
     # ASR returned empty — ask user to retry
     if not text:
         from responses import no_number
-        send_text(from_number, "Mente ase. " + no_number())
+        last_lang = (SESSIONS.get(from_number) or {}).get("lang", "tw")
+        msg = "Mente ase. " + no_number(lang=last_lang) if last_lang == "tw" else "Mɔ̃ o. " + no_number(lang=last_lang)
+        send_prompt(from_number, "Could not understand audio. Please try again.", msg)
         return
 
     process_message(text, from_number)
