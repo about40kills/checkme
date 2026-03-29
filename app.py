@@ -564,11 +564,13 @@ def handle_voice(ogg_bytes, from_number):
     from audio import ogg_to_wav
     from asr import transcribe
     from language_support import detect_language
+    from lookup import extract_number
 
     wav = ogg_to_wav(ogg_bytes)
     text = transcribe(wav)
     lang = detect_language(text)
-    print(f"Transcribed ({lang}): {text}")
+    extracted = extract_number(text)
+    print(f"[ASR] raw='{text}' lang={lang} extracted={extracted!r}", flush=True)
 
     # ASR returned empty — ask user to retry
     if not text:

@@ -60,22 +60,28 @@ def _parse_token(token):
 def spoken_words_to_digits(text):
     """
     Convert a string of spoken digit words (from ASR) into a digit string.
-    Returns None if the result isn't a plausible phone number length (9-12 digits).
+
+    Uses a sliding-window approach so filler words before/after the number
+    (e.g. "me number ne sero tu foɔfoɔ...") don't discard the whole utterance.
+    Returns the first contiguous run of digit tokens whose total digit length
+    falls in the plausible phone-number range (9-12 digits), or None.
     """
-    tokens = re.split(r"[\s,]+", text.lower().strip())
-    digits = []
-    for token in tokens:
-        token = token.strip(".,!?")
-        if not token:
-            continue
-        parsed = _parse_token(token)
-        if parsed:
-            digits.append(parsed)
-        else:
-            # Non-digit word found — not a pure spoken-number utterance
-            return None
-    digit_str = "".join(digits)
-    return digit_str if 9 <= len(digit_str) <= 12 else None
+    raw_tokens = re.split(r"[\s,]+", text.lower().strip())
+    tokens = [t.strip(".,!?") for t in raw_tokens if t.strip(".,!?")]
+
+    for start in range(len(tokens)):
+        digits = []
+        for token in tokens[start:]:
+            parsed = _parse_token(token)
+            if parsed:
+                digits.append(parsed)
+            else:
+                break  # end of this contiguous run
+        digit_str = "".join(digits)
+        if 9 <= len(digit_str) <= 12:
+            return digit_str
+
+    return None
 
 
 def normalize_ghana_mobile(raw):
