@@ -10,7 +10,7 @@ def _category_hint_tw(category):
         "ngo": "Yei yɛ community organization akoanto.",
         "agent": "Yei yɛ mobile money agent akoanto.",
     }
-    return hints.get(category, "Hwɛ din no yie ansa na wo soma sika.")
+    return hints.get(category, "Hwɛ din no yie ansa na wo soma sika no.")
 
 
 def _category_hint_ee(category):
@@ -29,10 +29,10 @@ def _category_hint_ee(category):
 # ── Language selection prompt ─────────────────────────────────────────────────
 
 LANG_SELECT_ENGLISH = "Select your language:\n1. Twi\n2. Ewe"
-LANG_SELECT_TW = "fa baako sɛ wo pɛ Twi, fa mmienu sɛ wo pɛ Ewe."
+LANG_SELECT_TW = "sɛ wo pɛ Twi aa Fa baako, sɛ wo pɛ Ewe aa Fa mmienu."
 LANG_SELECT_EE = "Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
 # Combined voice prompt so both Twi and Ewe speakers hear their language
-LANG_SELECT_VOICE = "fa baako sɛ wo pɛ Twi, fa mmienu sɛ wo pɛ Ewe.                  Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
+LANG_SELECT_VOICE = "sɛ wo pɛ Twi aa Fa baako, sɛ wo pɛ Ewe aa Fa mmienu.Tso 1 be nèdi Twi, tso 2 be nèdi Ewe."
 
 
 # ── Found responses ───────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ def found(number, entity, lang="tw"):
     if lang == "ee":
         hint = _category_hint_ee(category)
         return (
-            f"Number {number} ŋkɔ nye {name}. "
+            f"Nɔmba {number} ŋkɔ nye {name}. "
             f"Kpɔ be eya nye ame si wòdzɔ na la esime ado ga. "
             f"{hint} "
             f"Èdi be ado ga na wo? Ŋlɔ YES be wòyi edzi."
@@ -56,10 +56,10 @@ def found(number, entity, lang="tw"):
     else:  # default Twi
         hint = _category_hint_tw(category)
         return (
-            f"Number {number} din de {name}. "
-            f"Hwɛ sɛ ɛne onipa aa wopɛ sɛ wo soma sika no ne nɔmba no yɛ pɛ ansa na wo asoma sika no "
+            f"Nɔmba {number} din de {name}. "
+            f"Hwɛ sɛ ɛne onipa aa wopɛ sɛ wo soma sika no ne nɔmba no yɛ pɛ ansa na wo asoma sika no. "
             f"{hint} "
-            f"Wopɛ sɛ wo soma sika ama won? fa YES na wɔ anim."
+            f"Wopɛ sɛ wo soma sika no ma no? Fa YES na kɔ wo anim."
         )
 
 
@@ -73,25 +73,25 @@ def not_found(number, lang="tw"):
             f"Mégblɔ PIN tɔ ame aɖeke ŋu o."
         )
     return (
-        f"Yɛnhuu din bi aa wɔ {number} no so."
-        f"Hwɛ number no bio anaasɛ bisa onipa no sɛ ɔnkyerɛ wo n'akoanto no."
-        f"ɛnka wo PIN nkyerɛ obiaa"
+        f"Yɛnhuunuu din bi aa {number} ɛne nɔmba no yɛ pɛ. "
+        f"Hwɛ Nɔmba no bio anaasɛ bisa onipa no sɛɛ ɔnkyerɛ wo n'akoanto no. "
+        f"ɛnka wo PIN ɛnkyerɛ obiaa."
     )
 
 
 # ── No number responses ───────────────────────────────────────────────────────
 
 _no_number_tw = [
-    "Mesrɛ wo, ka number no bio. Te sɛ: sero tu foɔfoɔ foɔfoɔ wɔn tu tri fɔ faif seks.",
-    "Menhuu number biara wo wo nsɛm mu. Ka number no pɛn bio, na fa digit nyinaa ka.",
-    "Number no nte ase. Mesrɛ wo, kyerɛ me number a wopɛ sɛ wo hwɛ no.",
-    "Mesrɛ wo, soma number no foforo. Hwɛ sɛ w'akyerɛ digits nyinaa.",
-    "Mente ase number biara. Ka number no bio, na fa digits nyinaa ka.",
-    "Mesrɛ wo, number no nte ase. Ka number no bio na fa digits nyinaa ka.",
-    "Wanhyɛ number biara ama me. Mesrɛ wo, ka number no bio.",
-    "Menhuu number biara. Xia number no bio, na hwɛ sɛ wukyerɛ digits nyinaa.",
-    "Number no nnyɛ number pa. Mesrɛ wo, ka number no bio pɛ.",
-    "Mente ase. Mesrɛ wo, fa number no bio na kyerɛ me digits nyinaa.",
+    "Mesrɛ wo, ka Nɔmba no bio. Te sɛ: sero tu foɔfoɔ foɔfoɔ wɔn tu tri fɔ faif seks.",
+    "Menhuunuu Nɔmba biara wo wo nsɛm no mu. Ka Nɔmba no bio, na fa digit nyinaa ka ho.",
+    "Nɔmba no me nte aseɛ. Mesrɛ wo, kyerɛ me Nɔmba no aa wopɛ sɛ wo hwɛ no.",
+    "Mesrɛ wo, soma Nɔmba no bio na hwɛ sɛɛ wabɔ digits nyinaa.",
+    "Mente aseɛ. Ka Nɔmba no bio, na fa digits nyinaa ka ho.",
+    "Mesrɛ wo, Nɔmba no me nte aseɛ. Ka Nɔmba no bio na fa digits nyinaa ka ho.",
+    "Wanka Nɔmba biara ankyerɛ me. Mesrɛ wo, ka Nɔmba no bio.",
+    "Menhuu Nɔmba biara. Ka Nɔmba no bio, na hwɛ sɛ wakyerɛ digits nyinaa.",
+    "Nɔmba no nnyɛ Nɔmba pa. Mesrɛ wo, ka Nɔmba no bio.",
+    "Mente aseɛ. Mesrɛ wo, ka Nɔmba no bio na kyerɛ me digits nyinaa.",
 ]
 
 _no_number_ee = [
@@ -136,10 +136,10 @@ def confirm_transfer(name, number, amount, reference, lang="tw"):
             f"Esia nye teƒe a MTN *170# ga wò PIN ŋu ado ga la."
         )
     return (
-        f"Hyɛ wo MoMo PIN sɛ wo si ho ban.\n"
-        f"Wosoma GHS {amount} kɔ {name} ({number}).\n"
+        f"Hyɛ wo MoMo PIN yie na bɔ ho ban.\n"
+        f"Woasoma {amount} akɔ ma {name} ({number}).\n"
         f"Reference: {reference}.\n"
-        f"Ɛha na MTN *170# bɛfa wo PIN na atua sika no."
+        f"Ɛha na momo bɛfa wo PIN na watua sika no."
     )
 
 
@@ -152,8 +152,8 @@ def transfer_success(name, number, amount, reference, lang="tw"):
             f"Akpe be nèkpɔ ŋkɔ la esime ado ga."
         )
     return (
-        f"✅ Sika soma wie ase.\n"
-        f"Wosomaa GHS {amount} kɔ {name} ({number}).\n"
+        f"✅ Yawie bibiaa.\n"
+        f"Wosomaa {amount} ɛkɔɔ {name} ({number}).\n"
         f"Reference: {reference}.\n"
-        f"Yɛda wo ase sɛ wohwɛ din no ansa na wosomaae."
+        f"Yɛda wo ase sɛ wohwɛɛ din no ansa na wosomaaɛ."
     )

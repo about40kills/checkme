@@ -80,7 +80,7 @@ def send_prompt(to, english, twi):
     send_text(to, english)
     from audio import mp3_to_ogg
     mp3 = _tts_cached(twi)
-    if mp3:
+    if isinstance(mp3, bytes) and len(mp3) > 0:
         try:
             ogg = mp3_to_ogg(mp3)
             send_voice(to, ogg)
@@ -495,7 +495,7 @@ def process_message(text, from_number):
             record = lookup_record(target_number)
             name = record["display_name"] if record else "Onipa"
             ref = text if text.strip() else "N/A"
-            send_text(from_number, confirm_transfer(name, target_number, amount, ref, lang=lang))
+            send_prompt(from_number, confirm_transfer(name, target_number, amount, ref, lang=lang), confirm_transfer(name, target_number, amount, ref, lang=lang))
             with _lock:
                 session["reference"] = ref
                 session["state"] = "AWAITING_PIN"
