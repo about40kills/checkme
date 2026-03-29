@@ -1,10 +1,10 @@
-# CheckMe — Project Documentation
+`# CheckMe — Project Documentation
 
 ## Overview
 
 CheckMe is a WhatsApp-based mobile money safety tool designed for Ghanaian users. Before sending money via MTN MoMo, Telecel Cash, or AT Money, a user can verify the registered name behind any phone number by simply messaging the bot. The goal is to reduce misdirected transfers and fraud by giving users a way to confirm recipient identity before committing to a transaction.
 
-The bot supports two local languages — **Twi** and **Ewe** — alongside English, making it accessible to users who are more comfortable in their mother tongue.
+The bot supports two local languages — **Twi** and **Ewe** — alongside English, making it accessible to users who are more comfortable in their mother tongue for now using the Khaya AI plaform APIs free tier. We are in talks with MTN Ghana to get access to their MoMo database to make this a reality.
 
 ---
 
